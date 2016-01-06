@@ -7,27 +7,27 @@ import re
 from django.conf import settings
 from requests.exceptions import RequestException
 from allauth.socialaccount.models import SocialToken
-from allauth.socialaccount.providers.github.views import GitHubOAuth2Adapter
+from allauth.socialaccount.providers.gitlab.views import GitLabOAuth2Adapter
 
 from readthedocs.builds import utils as build_utils
 from readthedocs.restapi.client import api
 
 from ..models import RemoteOrganization, RemoteRepository
-from .base import Service
+from .base import Service, DEFAULT_PRIVACY_LEVEL
 
-
-DEFAULT_PRIVACY_LEVEL = getattr(settings, 'DEFAULT_PRIVACY_LEVEL', 'public')
 
 log = logging.getLogger(__name__)
 
 
-class GitHubService(Service):
+class GitLabService(Service):
+    """Provider service for GitLab"""
 
-    """Provider service for GitHub"""
+    adapter = GitLabOAuth2Adapter
 
-    adapter = GitHubOAuth2Adapter
-    # TODO replace this with a less naive check
-    url_pattern = re.compile(r'^github\.com\/')
+    @property
+    def url_pattern(self):
+        # url_pattern = re.compile(r'^github\.com\/')
+        return self.adapter.provider_base_url
 
     def sync(self):
         """Sync repositories and organizations"""
@@ -36,20 +36,24 @@ class GitHubService(Service):
 
     def sync_repositories(self):
         """Sync repositories from GitHub API"""
-        repos = self.paginate('https://api.github.com/user/repos?per_page=100')
+        repos = self.paginate('{0}/api/v3/projects'.format(
+            self.adapter.provider_base_url
+        ))
         try:
             for repo in repos:
                 self.create_repository(repo)
         except (TypeError, ValueError) as e:
-            log.error('Error syncing GitHub repositories: %s',
+            log.error('Error syncing GitLab repositories: %s',
                       str(e), exc_info=True)
-            raise Exception('Could not sync your GitHub repositories, '
+            raise Exception('Could not sync your GitLab repositories, '
                             'try reconnecting your account')
 
     def sync_organizations(self):
         """Sync organizations from GitHub API"""
         try:
-            orgs = self.paginate('https://api.github.com/user/orgs')
+            groups = self.paginate('{0}/api/v3/groups'.format(
+                self.adapter.provider_base_url
+            ))
             for org in orgs:
                 org_resp = self.get_session().get(org['url'])
                 org_obj = self.create_organization(org_resp.json())
@@ -99,8 +103,8 @@ class GitHubService(Service):
                 repo.organization = organization
             repo.name = fields['name']
             repo.description = fields['description']
-            repo.ssh_url = fields['ssh_url']
-            repo.html_url = fields['html_url']
+            repo.ssh_url = fields['ssh_url_to_repo']
+            repo.html_url = fields['web_url']
             repo.private = fields['private']
             if repo.private:
                 repo.clone_url = fields['ssh_url']
@@ -171,9 +175,10 @@ class GitHubService(Service):
         data = json.dumps({
             'name': 'readthedocs',
             'active': True,
-            'config': {'url': 'https://{domain}/github'.format(domain=settings.PRODUCTION_DOMAIN)}
+            'config': {'url': 'https://{domain}/gitlab'.format(domain=settings.PRODUCTION_DOMAIN)}
         })
         resp = None
+        import pdb; pdb.set_trace()
         try:
             resp = session.post(
                 ('https://api.github.com/repos/{owner}/{repo}/hooks'
