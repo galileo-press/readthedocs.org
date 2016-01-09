@@ -119,7 +119,7 @@ class GitLabService(Service):
             )
 
     def create_organization(self, fields):
-        """Update or create remote organization from GitHub API response
+        """Update or create remote organization from GitLab API response
 
         :param fields: dictionary response of data from API
         :rtype: RemoteOrganization
